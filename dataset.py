@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import matplotlib
 from glob import glob
 
+from helpers import image_to_patches
+
 matplotlib.use("GTK3Agg")
 
 
@@ -56,78 +58,6 @@ class BinSegDataset(Dataset):
         return image_patches, mask_patches
     
     
-def image_to_patches(image, p_size):
-    """
-    Splits an image into patches of size p_size x p_size, padding the image if necessary.
-    
-    Parameters:
-    image (numpy array): Input image of shape (H, W, C) or (H, W).
-    p_size (int): Size of the patches to extract (p_size x p_size).
-    
-    Returns:
-    tuple: (Padded image, Patches in shape (num_patches_y, num_patches_x, p_size, p_size, C) 
-            if 3D input, else (num_patches_y, num_patches_x, p_size, p_size))
-    """
-    h, w = image.shape[:2]
-    
-    # Calculate the padding needed to make the dimensions divisible by p_size
-    pad_h = (p_size - h % p_size) % p_size
-    pad_w = (p_size - w % p_size) % p_size
-    
-    # Pad the image with zeros (or other values if necessary)
-    if len(image.shape) == 3:  # RGB or multi-channel image
-        image_padded = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode='constant')
-    else:  # Grayscale image
-        image_padded = np.pad(image, ((0, pad_h), (0, pad_w)), mode='constant')
-    
-    # Get new dimensions after padding
-    h_padded, w_padded = image_padded.shape[:2]
-    
-    # Split the image into patches
-    patches = image_padded.reshape(h_padded // p_size, p_size, w_padded // p_size, p_size, -1)
-    patches = patches.swapaxes(1, 2)  # Move patch dimensions together
-    
-    num_patches_y, num_patches_x = patches.shape[:2]
-    patches = patches.reshape(num_patches_y * num_patches_x, p_size, p_size, -1)
-    
-    return patches
-
-
-def patches_to_image(patches, image_shape, p_size):
-    """
-    Reconstructs the original (padded) image from patches.
-    
-    Parameters:
-    patches (numpy array): Patches of shape (num_patches, p_size, p_size, C) or (num_patches, p_size, p_size).
-    image_shape (tuple): Shape of the original padded image (H, W, C) or (H, W).
-    p_size (int): Size of the patches (p_size x p_size).
-    
-    Returns:
-    numpy array: Reconstructed image of shape image_shape.
-    """
-    h_padded, w_padded = image_shape[:2]
-    
-    # Calculate the number of patches along height and width
-    num_patches_y = h_padded // p_size
-    num_patches_x = w_padded // p_size
-    
-    # Reshape patches back into the grid shape (num_patches_y, num_patches_x, p_size, p_size, C)
-    patches = patches.reshape(num_patches_y, num_patches_x, p_size, p_size, -1)
-    
-    # Swap axes back to combine patches into the original padded image
-    patches = patches.swapaxes(1, 2)
-    
-    # Reshape to the original image size
-    reconstructed_image = patches.reshape(h_padded, w_padded, -1)
-    
-    return reconstructed_image
-    
-    
-def rebatch(patches, batch_size):
-    num_patches = patches.shape[0]
-    # Split into sub-batches of the desired size
-    sub_batches = [patches[i:i + batch_size] for i in range(0, num_patches, batch_size)]
-    return sub_batches
 
 
 

@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.model_selection import train_test_split
 from torchmetrics import Accuracy, JaccardIndex
-from dataset import BinSegDataset, rebatch, patches_to_image
+from dataset import BinSegDataset
+from helpers import rebatch, plot_predictions
 from models import UNet
 from torchsummary import summary
 from helpers import save_state
@@ -27,8 +28,9 @@ IMAGE_SIZE = PATCH_SIZE * PATCH_COUNT
 N_FEATURES = 32
 NUM_CLASSES = 2
 BATCH_SIZE = 32
-NUM_EPOCHS = 10
-LEARNING_RATE = 1e-3
+NUM_EPOCHS = 50
+LEARNING_RATE = 5e-4
+PLOT_COUNT = 4
 
 
 accuracy_score = Accuracy(task='multiclass', num_classes=2).to(device)
@@ -60,7 +62,7 @@ def main():
     train_ds = BinSegDataset(train_images, train_masks, (IMAGE_SIZE, IMAGE_SIZE), PATCH_SIZE, NUM_CLASSES)
     val_ds = BinSegDataset(val_images, val_masks, (IMAGE_SIZE, IMAGE_SIZE), PATCH_SIZE, NUM_CLASSES)
     
-    train_loader = DataLoader(train_ds, batch_size=None, shuffle=True, num_workers=os.cpu_count(), prefetch_factor=2)
+    train_loader = DataLoader(train_ds, batch_size=None, shuffle=True, num_workers=os.cpu_count(), prefetch_factor=1)
     val_loader = DataLoader(val_ds, batch_size=None, shuffle=False)
     
     print(len(train_ds))
@@ -80,7 +82,7 @@ def main():
     
     save_dir = Path('models')
     save_path = save_dir / 'unet.pth'
-    train_model(model, train_loader, val_loader, save_path, NUM_EPOCHS, optim, loss_fn, NUM_CLASSES)
+    history = train_model(model, train_loader, val_loader, save_path, NUM_EPOCHS, optim, loss_fn, NUM_CLASSES)
     
 
 
@@ -173,28 +175,7 @@ def train_model(
         if len(val_losses) == 0 or val_loss < np.min(val_losses):
             save_state(save_path, model, optim, epoch)
             
-            inputs, targets = next(iter(val_ds))
-            model.eval()
-            with torch.inference_mode():
-                preds = model(inputs.to(device))
-                preds = torch.argmax(preds, dim=1)
-                targets = torch.argmax(targets, dim=1)
-            print(inputs.shape, targets.shape, preds.shape)
-            print(inputs.shape, targets.unsqueeze(1).shape, preds.unsqueeze(1).shape)
-            whole_image = patches_to_image(inputs.permute(0, 2, 3, 1), (IMAGE_SIZE, IMAGE_SIZE), PATCH_SIZE)
-            whole_mask = patches_to_image(targets.unsqueeze(1).permute(0, 2, 3, 1), (IMAGE_SIZE, IMAGE_SIZE), PATCH_SIZE)
-            whole_preds = patches_to_image(preds.unsqueeze(1).permute(0, 2, 3, 1), (IMAGE_SIZE, IMAGE_SIZE), PATCH_SIZE)
-            print(whole_image.shape)
-            plt.figure(figsize=(12, 12))
-            plt.subplot(1,3,1)
-            plt.imshow(whole_image)
-            plt.subplot(1,3,2)
-            plt.imshow(whole_mask.cpu(), cmap='gray')
-            plt.subplot(1,3,3)
-            plt.imshow(whole_preds.cpu(), cmap='gray')
-            plt.tight_layout()
-            plt.savefig(f'figs/best-{epoch}.png')
-            plt.close()
+            plot_predictions(model, val_ds, PLOT_COUNT, Path('figs'), epoch, IMAGE_SIZE, PATCH_SIZE, device)
             
         
         
@@ -208,7 +189,9 @@ def train_model(
     return {
         'loss': losses,
         'acc': accs,
+        'iou': ious,
         'val_loss': val_losses,
+        'val_iou': val_ious,
         'val_acc': val_accs
     }
 
