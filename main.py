@@ -28,7 +28,7 @@ IMAGE_SIZE = PATCH_SIZE * PATCH_COUNT
 N_FEATURES = 32
 NUM_CLASSES = 2
 BATCH_SIZE = 32
-NUM_EPOCHS = 50
+NUM_EPOCHS = 100
 LEARNING_RATE = 5e-4
 PLOT_COUNT = 4
 
@@ -59,7 +59,7 @@ def main():
     print(f'Total val images and masks: {len(val_images)}, {len(val_masks)}')
     print(f'Total test images and masks: {len(test_images)}, {len(test_masks)}')
     
-    train_ds = BinSegDataset(train_images, train_masks, (IMAGE_SIZE, IMAGE_SIZE), PATCH_SIZE, NUM_CLASSES)
+    train_ds = BinSegDataset(train_images, train_masks, (IMAGE_SIZE, IMAGE_SIZE), PATCH_SIZE, NUM_CLASSES, augment=True)
     val_ds = BinSegDataset(val_images, val_masks, (IMAGE_SIZE, IMAGE_SIZE), PATCH_SIZE, NUM_CLASSES)
     
     train_loader = DataLoader(train_ds, batch_size=None, shuffle=True, num_workers=os.cpu_count(), prefetch_factor=1)
@@ -164,13 +164,18 @@ def train_model(
     val_accs = []
     val_ious = []
     
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode='min', factor=0.5, patience=15)
+    
     for epoch in range(num_epochs):
         print(f'Epoch {epoch+1}/{num_epochs}:')
         
         train_loss, train_acc, train_iou = train_step(model, train_ds, loss_fn, optim, num_classes)
         val_loss, val_acc, val_iou = validation_step(model, val_ds, loss_fn, num_classes)
         
-        print(f'loss: {train_loss:0.4f} | acc: {train_acc:0.4f} | iou: {train_iou:0.4f} | val_loss: {val_loss:0.4f} | val_acc: {val_acc:0.4f} | val_iou: {val_iou:0.4f}\n')
+        lr_scheduler.step(val_loss)
+        last_lr = lr_scheduler.get_last_lr()
+        
+        print(f'loss: {train_loss:0.4f} | acc: {train_acc:0.4f} | iou: {train_iou:0.4f} | val_loss: {val_loss:0.4f} | val_acc: {val_acc:0.4f} | val_iou: {val_iou:0.4f} | lr: {last_lr[0]:0.6f}\n')
         
         if len(val_losses) == 0 or val_loss < np.min(val_losses):
             save_state(save_path, model, optim, epoch)

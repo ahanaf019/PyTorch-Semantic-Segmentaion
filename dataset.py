@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 from glob import glob
+import albumentations as A
 
 from helpers import image_to_patches
 
@@ -19,12 +20,22 @@ matplotlib.use("GTK3Agg")
 
 
 class BinSegDataset(Dataset):
-    def __init__(self, image_paths, mask_paths, image_size, patch_size, num_classes):
+    def __init__(self, image_paths, mask_paths, image_size, patch_size, num_classes, augment=False, augment_transforms=None):
         self.image_paths = image_paths
         self.mask_paths = mask_paths
         self.image_size = image_size
         self.patch_size = patch_size
         self.num_classes = num_classes
+        self.augment = augment
+        
+        self.augment_transforms = A.Compose([
+            A.D4(p=0.5),
+            A.ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=30, p=0.5),
+            A.RGBShift(r_shift_limit=25, g_shift_limit=25, b_shift_limit=25, p=0.5),
+            A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
+            A.XYMasking(num_masks_x=(0, 3), num_masks_y=(0, 3), mask_x_length=(10, 50), mask_y_length=(10, 50))
+            # A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ])
     
     
     def __len__(self):
@@ -49,6 +60,12 @@ class BinSegDataset(Dataset):
         mask = mask / 255.0
         # print(image.shape, mask.shape)
         
+        if self.augment:
+            transformed = self.augment_transforms(image=image, mask=mask)
+            image = transformed["image"]
+            mask = transformed["mask"]
+        
+        
         image_patches = image_to_patches(image, self.patch_size) / 255.0
         mask_patches = image_to_patches(mask, self.patch_size)
         
@@ -56,6 +73,9 @@ class BinSegDataset(Dataset):
         mask_patches = torch.tensor(mask_patches, dtype=torch.int64)
         mask_patches = torch.nn.functional.one_hot(mask_patches.squeeze(), self.num_classes).permute(0, 3, 1, 2)
         return image_patches, mask_patches
+    
+    
+
     
     
 
