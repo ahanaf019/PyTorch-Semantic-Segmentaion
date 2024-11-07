@@ -107,8 +107,15 @@ def plot_predictions(model: nn.Module, val_ds: torch.utils.data.DataLoader,
     with torch.inference_mode():
         for i in range(plot_count):
             inputs, targets = next(itr)
-            preds = model(inputs.to(device))
-            preds = torch.argmax(preds, dim=1)
+            
+            preds = []
+            inputs_sub_batches = rebatch(inputs, batch_size=4)
+            for img_batch in inputs_sub_batches:
+                p = model(img_batch.to(device))
+                p = torch.argmax(p, dim=1)
+                preds.append(p)
+            
+            preds = torch.concat(preds)
             targets = torch.argmax(targets, dim=1)
             whole_image = patches_to_image(inputs.permute(0, 2, 3, 1), (image_size, image_size), patch_size)
             whole_mask = patches_to_image(targets.unsqueeze(1).permute(0, 2, 3, 1), (image_size, image_size), patch_size)

@@ -13,6 +13,7 @@ from helpers import save_state
 from torch.utils.data import DataLoader
 import os
 from typing import Callable
+from torch.cuda.amp import GradScaler, autocast
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -25,7 +26,7 @@ VAL_SPLIT = 0.1
 PATCH_SIZE = 224
 PATCH_COUNT = 10
 IMAGE_SIZE = PATCH_SIZE * PATCH_COUNT
-N_FEATURES = 32
+N_FEATURES = 64
 NUM_CLASSES = 2
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
@@ -90,7 +91,7 @@ def main():
 
 from tqdm.auto import tqdm
 
-def train_step(model: nn.Module, train_ds: DataLoader, loss_fn: Callable, optim: torch.optim.Optimizer, num_classes: int):
+def train_step(model: nn.Module, train_ds: DataLoader, loss_fn: Callable, optim: torch.optim.Optimizer, scaler: GradScaler, num_classes: int):
     accs = []
     ious = []
     losses = []
@@ -109,12 +110,16 @@ def train_step(model: nn.Module, train_ds: DataLoader, loss_fn: Callable, optim:
         for img_batch, mask_batch in zip(inputs_sub_batches, targets_sub_batches):
             # print(img_batch.shape, mask_batch.shape)
             model.train()
-            preds = model(img_batch)
-            loss = loss_fn(preds, mask_batch)
+            with autocast():
+                preds = model(img_batch)
+                loss = loss_fn(preds, mask_batch)
             
             optim.zero_grad()
-            loss.backward()
-            optim.step()
+            scaler.scale(loss).backward()
+            scaler.step(optim)
+            scaler.update()
+            # loss.backward()
+            # optim.step()
             
             # print(torch.argmax(preds, dim=1).shape, torch.argmax(mask_batch, dim=1).shape)
             # print(preds.device, mask_batch.device)
@@ -165,11 +170,12 @@ def train_model(
     val_ious = []
     
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode='min', factor=0.5, patience=15)
+    scaler = GradScaler()
     
     for epoch in range(num_epochs):
         print(f'Epoch {epoch+1}/{num_epochs}:')
         
-        train_loss, train_acc, train_iou = train_step(model, train_ds, loss_fn, optim, num_classes)
+        train_loss, train_acc, train_iou = train_step(model, train_ds, loss_fn, optim, scaler, num_classes)
         val_loss, val_acc, val_iou = validation_step(model, val_ds, loss_fn, num_classes)
         
         lr_scheduler.step(val_loss)
